@@ -25,7 +25,7 @@ Làm **đúng thứ tự**. Mỗi bước có **lệnh kiểm tra** và **dấu 
 
 ## Bước 0 — Setup
 
-**Cần có:** Python 3.11, Docker Desktop (đang chạy), và ít nhất một API key: OpenAI (khuyên dùng), OpenRouter, Gemini hoặc Anthropic. Anthropic chỉ dùng cho chat; embedding cần OpenAI/OpenRouter/Gemini.
+**Cần có:** Python 3.11, Docker Desktop (đang chạy), và ít nhất một API key: OpenAI (khuyên dùng), OpenRouter, Gemini, Anthropic hoặc MWAPI. Anthropic/MWAPI chỉ dùng cho chat; embedding cần OpenAI/OpenRouter/Gemini.
 
 > **Bật Docker Desktop trước** mỗi khi chạy lệnh `docker run` / `docker start neo4j-drug-kg` (kể cả mỗi lần mở lại máy). Đợi biểu tượng Docker chuyển xanh rồi mới chạy. Nếu chưa bật, lệnh báo `cannot connect to the Docker daemon`.
 
@@ -45,7 +45,7 @@ copy .env.example .env             # macOS/Linux: cp .env.example .env
 
 ### Chọn provider
 
-Provider chính và rẻ nhất cho baseline là **OpenAI**. OpenRouter, Gemini và Anthropic là phương án dự phòng. `bench_kg.py` in provider thực tế ở đầu mỗi lần chạy để số liệu benchmark không bị lẫn.
+Provider chính và rẻ nhất cho baseline là **OpenAI**. OpenRouter, Gemini, Anthropic và MWAPI là phương án khác. `bench_kg.py` in provider thực tế ở đầu mỗi lần chạy để số liệu benchmark không bị lẫn.
 
 | Provider chat | Key trong `.env` | Model mặc định | Embedding dùng |
 | --- | --- | --- | --- |
@@ -53,15 +53,22 @@ Provider chính và rẻ nhất cho baseline là **OpenAI**. OpenRouter, Gemini 
 | OpenRouter | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` | OpenRouter `openai/text-embedding-3-small` |
 | Gemini | `GEMINI_API_KEY` | `gemini-2.5-flash-lite` | Gemini `gemini-embedding-001` |
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-5-5` | **Không có embedding API**: phải thêm key OpenAI/OpenRouter/Gemini |
+| MWAPI | `MWAPI_API_KEY` | `claude-haiku-4-5-20251001` | **Chat only trong repo này**: phải thêm key OpenAI/OpenRouter/Gemini |
 
-Nếu có nhiều key, tự động ưu tiên: **OpenAI → OpenRouter → Gemini → Anthropic**. Muốn ép provider:
+Nếu có nhiều key, tự động ưu tiên: **OpenAI → OpenRouter → Gemini → Anthropic → MWAPI**. Muốn ép MWAPI:
 
 ```dotenv
-LLM_PROVIDER=anthropic
+LLM_PROVIDER=mwapi
 EMBEDDING_PROVIDER=gemini
-ANTHROPIC_API_KEY=...
+MWAPI_API_KEY=...
+MWAPI_BASE_URL=https://api.mwapi.dev
+MWAPI_CHAT_MODEL=claude-haiku-4-5-20251001
+MWAPI_MAX_TOKENS=4096
+MWAPI_PRICE_MULTIPLIER=5
 GEMINI_API_KEY=...
 ```
+
+Kiểm tra riêng kết nối MWAPI với một response rất ngắn: `python scripts/check_mwapi.py`.
 
 Một lần benchmark chỉ dùng **một chat provider** và **một embedding provider**, không tự chuyển giữa chừng; như vậy cost/quality so sánh được. Không mix kết quả từ provider khác nhau trong cùng một bảng báo cáo. Giá USD là ước tính theo bảng trong `src/llm.py`; kiểm tra bảng giá provider trước khi báo cáo chính thức.
 

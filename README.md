@@ -81,7 +81,7 @@ Phần base (chunking, vector store, agent RAG) **đã có sẵn và chạy đư
 ## Yêu cầu
 
 - **Kiến thức:** Python, RAG cơ bản (embedding, top-k retrieval). Chưa cần biết Neo4j hay Cypher; guide có hướng dẫn.
-- **Công cụ:** Python 3.11, Docker Desktop, Git, và API key của **ít nhất một provider**: OpenAI (chính), OpenRouter, Gemini hoặc Anthropic. Nếu chỉ dùng Anthropic cho chat, cần thêm OpenAI/OpenRouter/Gemini cho embedding vì Anthropic không có embedding API.
+- **Công cụ:** Python 3.11, Docker Desktop, Git, và API key của **ít nhất một provider**: OpenAI (chính), OpenRouter, Gemini, Anthropic hoặc MWAPI. Nếu dùng Anthropic/MWAPI cho chat, cần thêm OpenAI/OpenRouter/Gemini cho embedding.
 - **Chi phí API:** khoảng **0,01–0,05 USD** cho mỗi lần chạy benchmark (`gpt-4o-mini`).
 - **Thời gian:** khoảng 5 giờ (setup 20', thiết kế ontology 40', code 2 giờ, benchmark và phân tích 1 giờ, báo cáo 40').
 

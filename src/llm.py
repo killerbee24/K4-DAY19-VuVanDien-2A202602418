@@ -2,9 +2,12 @@
 
 Providers (pick with env vars, otherwise the first one in PROVIDER_ORDER that has an API key wins):
 
-    LLM_PROVIDER        = openai | openrouter | gemini | anthropic    (chat)
+    LLM_PROVIDER        = openai | openrouter | gemini | anthropic | mwapi    (chat)
     EMBEDDING_PROVIDER  = openai | openrouter | gemini                (Anthropic has no embedding API)
     <PROVIDER>_CHAT_MODEL / <PROVIDER>_EMBEDDING_MODEL override the default models below.
+
+MWAPI is an Anthropic-compatible gateway. Its SDK base URL must omit `/v1` because the
+Anthropic client appends `/v1/messages` itself.
 
 One run uses one provider for the whole benchmark — no mid-run failover, so cost/quality numbers stay comparable.
 """
@@ -26,8 +29,10 @@ PROVIDERS = {
                "chat": "gemini-2.5-flash-lite", "embed": "gemini-embedding-001"},
     "anthropic": {"key": "ANTHROPIC_API_KEY", "base_url": None,
                   "chat": "claude-opus-5-5", "embed": None},
+    "mwapi": {"key": "MWAPI_API_KEY", "base_url": "https://api.mwapi.dev",
+              "chat": "claude-haiku-4-5-20251001", "embed": None},
 }
-PROVIDER_ORDER = ["openai", "openrouter", "gemini", "anthropic"]
+PROVIDER_ORDER = ["openai", "openrouter", "gemini", "anthropic", "mwapi"]
 
 # USD per 1M tokens (input, output). Check each provider's pricing page before reporting real numbers.
 PRICES_PER_M = {
@@ -41,6 +46,7 @@ PRICES_PER_M = {
     "claude-opus-5-5": (4.00, 20.00),
     "claude-sonnet-5-5": (2.00, 10.00),
     "claude-haiku-4-5": (1.00, 5.00),
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
 }
 
 @dataclass
@@ -102,13 +108,40 @@ class MeteredLLM:
                                         PROVIDERS[self.embed_provider]["embed"])
         self.chat_model = f"{self.chat_provider}:{self.chat_model_id}"
         self.embedding_model = f"{self.embed_provider}:{self.embed_model_id}"
+        default_max_tokens = "4096" if self.chat_provider == "mwapi" else "16000"
+        max_tokens_value = os.getenv(f"{self.chat_provider.upper()}_MAX_TOKENS", default_max_tokens)
+        try:
+            self.chat_max_tokens = int(max_tokens_value)
+        except ValueError as error:
+            raise RuntimeError(
+                f"{self.chat_provider.upper()}_MAX_TOKENS phải là số nguyên dương"
+            ) from error
+        if self.chat_max_tokens <= 0:
+            raise RuntimeError(f"{self.chat_provider.upper()}_MAX_TOKENS phải là số nguyên dương")
+        default_price_multiplier = "5" if self.chat_provider == "mwapi" else "1"
+        multiplier_value = os.getenv(
+            f"{self.chat_provider.upper()}_PRICE_MULTIPLIER", default_price_multiplier
+        )
+        try:
+            self.chat_price_multiplier = float(multiplier_value)
+        except ValueError as error:
+            raise RuntimeError(
+                f"{self.chat_provider.upper()}_PRICE_MULTIPLIER phải là số dương"
+            ) from error
+        if self.chat_price_multiplier <= 0:
+            raise RuntimeError(f"{self.chat_provider.upper()}_PRICE_MULTIPLIER phải là số dương")
         self._backend_name = self.embedding_model
         self.usage = Usage()
         self._chat_client: Any
         self._embed_client: Any
-        if self.chat_provider == "anthropic":
+        if self.chat_provider in ("anthropic", "mwapi"):
             anthropic = importlib.import_module("anthropic")
-            self._chat_client = anthropic.Anthropic(api_key=os.environ[PROVIDERS["anthropic"]["key"]])
+            cfg = PROVIDERS[self.chat_provider]
+            base_url = os.getenv(f"{self.chat_provider.upper()}_BASE_URL", cfg["base_url"] or "").rstrip("/")
+            client_options = {"api_key": os.environ[cfg["key"]]}
+            if base_url:
+                client_options["base_url"] = base_url
+            self._chat_client = anthropic.Anthropic(**client_options)
         else:
             self._chat_client = _openai_client(self.chat_provider)
         self._embed_client = (self._chat_client if self.embed_provider == self.chat_provider
@@ -116,7 +149,7 @@ class MeteredLLM:
 
     def chat(self, prompt: str, json_mode: bool = False) -> str:
         start = time.perf_counter()
-        if self.chat_provider == "anthropic":
+        if self.chat_provider in ("anthropic", "mwapi"):
             text, model, tokens_in, tokens_out = self._chat_anthropic(prompt)
         else:
             if json_mode and self.chat_provider != "gemini":
@@ -136,15 +169,29 @@ class MeteredLLM:
             usage = response.usage
             tokens_in = usage.prompt_tokens if usage else 0
             tokens_out = usage.completion_tokens if usage else 0
-        self.usage += Usage(1, tokens_in, tokens_out, price(model, tokens_in, tokens_out), time.perf_counter() - start)
+        chat_cost = price(model, tokens_in, tokens_out) * self.chat_price_multiplier
+        self.usage += Usage(1, tokens_in, tokens_out, chat_cost, time.perf_counter() - start)
         return _strip_fences(text) if json_mode else text
 
     def _chat_anthropic(self, prompt: str) -> tuple[str, str, int, int]:
+        if self.chat_provider == "mwapi" or "haiku-4-5" in self.chat_model_id:
+            # Haiku 4.5 does not accept output_config.effort. Using the stable Messages API also
+            # keeps this request compatible with Anthropic-style gateways such as MWAPI.
+            response = self._chat_client.messages.create(
+                model=self.chat_model_id,
+                max_tokens=self.chat_max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = "" if response.stop_reason == "refusal" else "".join(
+                block.text for block in response.content if block.type == "text"
+            )
+            return text, response.model, response.usage.input_tokens, response.usage.output_tokens
+
         # Claude Opus 5.5: thinking is always on and sampling params are removed; effort is the cost lever.
         # Server-side fallback re-runs a policy-declined request on another model inside the same call.
         response = self._chat_client.beta.messages.create(
             model=self.chat_model_id,
-            max_tokens=16000,
+            max_tokens=self.chat_max_tokens,
             output_config={"effort": "low"},
             betas=["server-side-fallback-2026-07-01"],
             extra_body={"fallbacks": "default"},
