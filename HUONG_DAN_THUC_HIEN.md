@@ -878,8 +878,8 @@ Hai lệnh không được lộ key thật. Nếu key từng bị commit, phải
 - [x] Test: `48 passed`.
 - [x] Check: 7 `[OK]`, không có `[LỖI]`.
 - [x] Repo có tên `K4-DAY19-HoVaTen-MSSV` theo yêu cầu môn học.
-- [ ] Đã commit và push phiên bản cuối lên repo GitHub cá nhân.
-- [ ] Đã mở lại repo trên GitHub để xác nhận đủ file và không có secret.
+- [x] Đã commit và push phiên bản cuối lên repo GitHub cá nhân.
+- [x] Đã xác nhận `origin/main` khớp commit local và repo không có secret.
 - [ ] Đã nộp đúng link repo lên vLearn.
 - [ ] Sau khi hoàn tất, có thể dừng Neo4j bằng `docker stop neo4j-drug-kg`.
 
